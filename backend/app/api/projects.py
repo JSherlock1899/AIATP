@@ -41,19 +41,6 @@ async def list_projects(
     return projects
 
 
-@router.get("/my", response_model=List[ProjectResponse])
-async def list_my_projects(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    List all projects the current user owns or is a member of.
-    """
-    service = ProjectService(db)
-    projects = await service.get_user_projects(current_user.id)
-    return projects
-
-
 @router.get("/{project_id}", response_model=ProjectWithMembers)
 async def get_project(
     project_id: int,

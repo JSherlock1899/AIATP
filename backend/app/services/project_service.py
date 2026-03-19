@@ -86,10 +86,9 @@ class ProjectService:
     async def update_project(self, project_id: int, project_data: ProjectUpdate, user_id: int) -> Project:
         project = await self._verify_project_access(project_id, user_id, require_role="admin")
 
-        if project_data.name is not None:
-            project.name = project_data.name
-        if project_data.description is not None:
-            project.description = project_data.description
+        update_data = project_data.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(project, key, value)
 
         await self.db.commit()
         await self.db.refresh(project)
