@@ -29,6 +29,12 @@ const routes: RouteRecordRaw[] = [
     name: 'ProjectDetail',
     component: () => import('@/views/ProjectDetail.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/projects/:id/source-code',
+    name: 'SourceCodeParse',
+    component: () => import('@/views/SourceCodeParse.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 
