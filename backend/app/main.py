@@ -10,6 +10,7 @@ from app.api.projects import router as projects_router
 from app.api.api_docs import router as api_docs_router
 from app.api.test_cases import router as test_cases_router
 from app.api.ai import router as ai_router
+from app.api.source_code import router as source_code_router
 
 app = FastAPI(title="AIATP", version="1.0.0")
 
@@ -18,6 +19,7 @@ app.include_router(projects_router)
 app.include_router(api_docs_router)
 app.include_router(test_cases_router)
 app.include_router(ai_router)
+app.include_router(source_code_router)
 
 cors_origins = os.getenv("CORS_ORIGINS", "*")
 allow_origins = cors_origins.split(",") if cors_origins != "*" else ["*"]
