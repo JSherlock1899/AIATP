@@ -319,3 +319,211 @@ def parse_java_file(file_path: str) -> List[ParsedEndpoint]:
         content = f.read()
     parser = SpringBootRegexParser()
     return parser.parse_content(content)
+
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
+from datetime import datetime
+import logging
+
+from app.models.source_code_project import SourceCodeProject, ParseStatus
+from app.models.api_endpoint import ApiEndpoint, HttpMethod
+
+log = logging.getLogger(__name__)
+
+
+class SourceCodeParseService:
+    """Service for parsing local source code projects."""
+
+    MAX_DEPTH = 20
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    def validate_source_path(self, path: str) -> str:
+        """Validate and sanitize source path."""
+        path = path.strip()
+
+        # Check for path traversal
+        if ".." in path:
+            raise ValueError("Path traversal not allowed")
+
+        # Check absolute path
+        if not os.path.isabs(path):
+            raise ValueError("Absolute path required")
+
+        # Check exists
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Source path does not exist: {path}")
+
+        return path
+
+    async def create_project(
+        self, project_id: int, name: str, source_path: str
+    ) -> SourceCodeProject:
+        """Create a new source code project."""
+        # Validate path
+        validated_path = self.validate_source_path(source_path)
+
+        # Check for existing project with same name
+        result = await self.db.execute(
+            select(SourceCodeProject).where(
+                SourceCodeProject.project_id == project_id,
+                SourceCodeProject.name == name
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            raise ValueError(f"Project with name '{name}' already exists")
+
+        project = SourceCodeProject(
+            project_id=project_id,
+            name=name,
+            source_path=validated_path,
+            language="spring-boot",
+            status=ParseStatus.PENDING
+        )
+        self.db.add(project)
+        await self.db.commit()
+        await self.db.refresh(project)
+
+        log.info(f"Created source code project '{name}' at {validated_path}")
+        return project
+
+    async def parse_project(self, project_id: int) -> SourceCodeProject:
+        """Parse a source code project and extract endpoints."""
+        result = await self.db.execute(
+            select(SourceCodeProject).where(SourceCodeProject.id == project_id)
+        )
+        project = result.scalar_one_or_none()
+
+        if not project:
+            raise ValueError(f"Source code project not found: {project_id}")
+
+        # Update status
+        project.status = ParseStatus.PARSING
+        await self.db.commit()
+
+        try:
+            # Scan for Java files
+            parser = SpringBootRegexParser()
+            java_files = parser.scan_java_files(project.source_path, self.MAX_DEPTH)
+
+            if not java_files:
+                project.status = ParseStatus.FAILED
+                project.error_message = "No Java files found in source path"
+                await self.db.commit()
+                return project
+
+            # Parse each file
+            all_endpoints = []
+            for java_file in java_files:
+                try:
+                    endpoints = parse_java_file(java_file)
+                    all_endpoints.extend(endpoints)
+                except Exception as e:
+                    log.warning(f"Failed to parse {java_file}: {e}")
+                    continue
+
+            # Create ApiDoc entry for this source project
+            from app.models.api_doc import ApiDoc
+            api_doc = ApiDoc(
+                project_id=project.project_id,
+                name=f"{project.name} (Source)",
+                version="1.0.0",
+                description=f"Auto-parsed from {project.source_path}",
+                content="",  # No raw content for source code
+                parsed_data={"source_files": len(java_files)}
+            )
+            self.db.add(api_doc)
+            await self.db.flush()
+
+            # Create endpoints
+            for endpoint_data in all_endpoints:
+                endpoint = ApiEndpoint(
+                    api_doc_id=api_doc.id,
+                    source_code_project_id=project.id,
+                    path=endpoint_data.path,
+                    method=HttpMethod[endpoint_data.method],
+                    summary=endpoint_data.summary,
+                    description=endpoint_data.description,
+                    request_body=endpoint_data.request_body,
+                    request_params=endpoint_data.parameters,
+                    responses=endpoint_data.responses
+                )
+                self.db.add(endpoint)
+
+            # Update project status
+            project.status = ParseStatus.COMPLETED
+            project.endpoints_count = len(all_endpoints)
+            project.parsed_at = datetime.utcnow()
+            await self.db.commit()
+            await self.db.refresh(project)
+
+            log.info(
+                f"Parsed source code project '{project.name}': "
+                f"{len(java_files)} files, {len(all_endpoints)} endpoints"
+            )
+
+        except Exception as e:
+            project.status = ParseStatus.FAILED
+            project.error_message = str(e)
+            await self.db.commit()
+            log.error(f"Failed to parse source code project {project_id}: {e}")
+
+        return project
+
+    async def get_project(self, project_id: int) -> Optional[SourceCodeProject]:
+        """Get a source code project by ID."""
+        result = await self.db.execute(
+            select(SourceCodeProject).where(SourceCodeProject.id == project_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_projects(self, project_id: int, skip: int = 0, limit: int = 100) -> List[SourceCodeProject]:
+        """List source code projects for a given project."""
+        result = await self.db.execute(
+            select(SourceCodeProject)
+            .where(SourceCodeProject.project_id == project_id)
+            .offset(skip)
+            .limit(limit)
+            .order_by(SourceCodeProject.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def get_project_endpoints(
+        self, source_project_id: int, skip: int = 0, limit: int = 100
+    ) -> List[ApiEndpoint]:
+        """Get all endpoints for a source code project."""
+        result = await self.db.execute(
+            select(ApiEndpoint)
+            .where(ApiEndpoint.source_code_project_id == source_project_id)
+            .offset(skip)
+            .limit(limit)
+            .order_by(ApiEndpoint.path, ApiEndpoint.method)
+        )
+        return list(result.scalars().all())
+
+    async def delete_project(self, project_id: int) -> None:
+        """Delete a source code project and its endpoints."""
+        result = await self.db.execute(
+            select(SourceCodeProject).where(SourceCodeProject.id == project_id)
+        )
+        project = result.scalar_one_or_none()
+
+        if not project:
+            raise ValueError(f"Source code project not found: {project_id}")
+
+        # Delete associated endpoints
+        await self.db.execute(
+            delete(ApiEndpoint).where(ApiEndpoint.source_code_project_id == project_id)
+        )
+
+        # Delete associated api_doc (one-to-one via source_code_project relationship)
+        if project.api_doc:
+            await self.db.delete(project.api_doc)
+
+        await self.db.delete(project)
+        await self.db.commit()
+
+        log.info(f"Deleted source code project: {project_id}")
