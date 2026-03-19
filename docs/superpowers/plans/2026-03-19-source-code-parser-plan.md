@@ -45,33 +45,22 @@ frontend/src/
 
 **Files:**
 - Modify: `backend/app/models/api_endpoint.py:21-24`
-- Modify: `backend/app/models/api_doc.py`
 
-- [ ] **Step 1: 修改 api_endpoint.py，将 api_doc_id 改为 nullable，添加 source_code_project_id**
+- [ ] **Step 1: 修改 api_endpoint.py，将 api_doc_id 改为 nullable**
 
 ```python
 # api_endpoint.py
 # 原: api_doc_id = Column(Integer, ForeignKey("api_docs.id"), nullable=False)
 # 改为:
 api_doc_id = Column(Integer, ForeignKey("api_docs.id"), nullable=True)
-source_code_project_id = Column(Integer, ForeignKey("source_code_projects.id"), nullable=True)
 ```
 
-- [ ] **Step 2: 在 ApiDoc 模型中添加 source_code_project 反向关系**
+**注意:** `source_code_project_id` FK 列和 `api_doc.py` 中的 `source_code_project` 关系将在 Task 2 中添加。
 
-```python
-# api_doc.py - ApiDoc 类中添加:
-source_code_project = relationship(
-    "SourceCodeProject",
-    back_populates="api_doc",
-    uselist=False  # 一对一关系
-)
-```
-
-- [ ] **Step 3: Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
-git add backend/app/models/api_endpoint.py backend/app/models/api_doc.py
+git add backend/app/models/api_endpoint.py
 git commit -m "refactor: make api_doc_id nullable to support source code projects"
 ```
 
@@ -82,6 +71,8 @@ git commit -m "refactor: make api_doc_id nullable to support source code project
 **Files:**
 - Create: `backend/app/models/source_code_project.py`
 - Modify: `backend/app/models/__init__.py`
+- Modify: `backend/app/models/api_endpoint.py` (添加 source_code_project_id FK)
+- Modify: `backend/app/models/api_doc.py` (添加 source_code_project 关系)
 
 - [ ] **Step 1: 创建 source_code_project.py**
 
@@ -120,16 +111,34 @@ class SourceCodeProject(Base):
     endpoints = relationship("ApiEndpoint")
 ```
 
-- [ ] **Step 2: 修改 models/__init__.py 导出**
+- [ ] **Step 2: 在 api_endpoint.py 添加 source_code_project_id FK**
+
+```python
+# api_endpoint.py - ApiEndpoint 类中添加:
+source_code_project_id = Column(Integer, ForeignKey("source_code_projects.id"), nullable=True)
+```
+
+- [ ] **Step 3: 在 api_doc.py 添加 source_code_project 关系**
+
+```python
+# api_doc.py - ApiDoc 类中添加:
+source_code_project = relationship(
+    "SourceCodeProject",
+    back_populates="api_doc",
+    uselist=False  # 一对一关系
+)
+```
+
+- [ ] **Step 4: 修改 models/__init__.py 导出**
 
 ```python
 from app.models.source_code_project import SourceCodeProject, ParseStatus
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add backend/app/models/source_code_project.py backend/app/models/__init__.py
+git add backend/app/models/source_code_project.py backend/app/models/__init__.py backend/app/models/api_endpoint.py backend/app/models/api_doc.py
 git commit -m "feat: add SourceCodeProject model for local source code parsing"
 ```
 
