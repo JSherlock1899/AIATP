@@ -47,20 +47,25 @@ frontend/src/
 - Modify: `backend/app/models/api_endpoint.py:21-24`
 - Modify: `backend/app/models/api_doc.py`
 
-- [ ] **Step 1: 修改 api_endpoint.py，将 api_doc_id 改为 nullable**
+- [ ] **Step 1: 修改 api_endpoint.py，将 api_doc_id 改为 nullable，添加 source_code_project_id**
 
 ```python
+# api_endpoint.py
 # 原: api_doc_id = Column(Integer, ForeignKey("api_docs.id"), nullable=False)
 # 改为:
 api_doc_id = Column(Integer, ForeignKey("api_docs.id"), nullable=True)
 source_code_project_id = Column(Integer, ForeignKey("source_code_projects.id"), nullable=True)
 ```
 
-- [ ] **Step 2: 在 api_doc.py 添加 relationship**
+- [ ] **Step 2: 在 ApiDoc 模型中添加 source_code_project 反向关系**
 
 ```python
-# ApiDoc 类中添加:
-source_code_projects = relationship("SourceCodeProject", back_populates="api_doc")
+# api_doc.py - ApiDoc 类中添加:
+source_code_project = relationship(
+    "SourceCodeProject",
+    back_populates="api_doc",
+    uselist=False  # 一对一关系
+)
 ```
 
 - [ ] **Step 3: Commit**
@@ -111,7 +116,7 @@ class SourceCodeProject(Base):
     parsed_at = Column(DateTime(timezone=True), nullable=True)
 
     project = relationship("Project")
-    api_doc = relationship("ApiDoc", uselist=False, back_populates="source_code_projects")
+    api_doc = relationship("ApiDoc", back_populates="source_code_project", uselist=False)
     endpoints = relationship("ApiEndpoint")
 ```
 
@@ -764,7 +769,7 @@ class SourceCodeParseService:
             delete(ApiEndpoint).where(ApiEndpoint.source_code_project_id == project_id)
         )
 
-        # Delete associated api_doc (one-to-one via source_code_projects relationship)
+        # Delete associated api_doc (one-to-one via source_code_project relationship)
         if project.api_doc:
             await self.db.delete(project.api_doc)
 
