@@ -56,12 +56,15 @@ class SpringBootRegexParser:
         re.MULTILINE
     )
 
-    # Pattern for method annotations: @GetMapping("/path") or @GetMapping() or @GetMapping
+    # Pattern for method annotations: @GetMapping("/path") or @GetMapping(value="/path") or @GetMapping
     METHOD_PATTERN = re.compile(
         r'@(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|HeadMapping|OptionsMapping|RequestMapping)'
         r'(?:\s*\(\s*(?:value\s*=\s*)?["\']([^"\']+)["\']\s*\))?',
         re.MULTILINE
     )
+
+    # Pattern to remove single-line comments to avoid matching annotations in comments
+    COMMENT_LINE_PATTERN = re.compile(r'^\s*//.*$', re.MULTILINE)
 
     REQUEST_BODY_PATTERN = re.compile(r'@RequestBody')
 
@@ -100,28 +103,34 @@ class SpringBootRegexParser:
         """Parse Java source code content and extract endpoints."""
         endpoints = []
 
+        # Remove single-line comments to avoid matching annotations in comments
+        # This fixes Critical 1: regex matches annotations inside comments
+        content_without_comments = self.COMMENT_LINE_PATTERN.sub('', content)
+
         # Find class-level @RequestMapping prefix
-        class_match = self.CLASS_CONTROLLER_PATTERN.search(content)
+        class_match = self.CLASS_CONTROLLER_PATTERN.search(content_without_comments)
         class_path = class_match.group(1) if class_match else ""
 
         # If no @RestController or @Controller with @RequestMapping, skip
-        if (not class_path and "@RestController" in content) or "@Controller" in content:
+        if (not class_path and "@RestController" in content_without_comments) or "@Controller" in content_without_comments:
             # Check if there's a standalone @RequestMapping at class level
             class_request_mapping = re.search(
                 r'@RequestMapping\s*\(\s*(?:value\s*=\s*)?["\']([^"\']+)["\']',
-                content
+                content_without_comments
             )
             if class_request_mapping:
                 class_path = class_request_mapping.group(1)
 
         # If still no class path, try to find package as fallback
         if not class_path:
-            package_match = re.search(r'package\s+([\w.]+);', content)
+            package_match = re.search(r'package\s+([\w.]+);', content_without_comments)
             if package_match:
                 class_path = "/" + package_match.group(1).replace(".", "/")
 
         # Find all method-level annotations
-        for match in self.METHOD_PATTERN.finditer(content):
+        # First pass: collect all raw matches
+        raw_matches = []
+        for match in self.METHOD_PATTERN.finditer(content_without_comments):
             annotation_name = match.group(1)
             method_path = match.group(2) if match.group(2) else ""
             http_method = self.METHOD_ANNOTATIONS.get(annotation_name, "GET")
@@ -130,7 +139,7 @@ class SpringBootRegexParser:
             if annotation_name == "RequestMapping":
                 # Check if this @RequestMapping is at class level by seeing if it appears
                 # before any public/private/protected method
-                before_content = content[:match.start()]
+                before_content = content_without_comments[:match.start()]
                 last_modifier = re.search(r'\b(public|private|protected)\s+', before_content)
                 if last_modifier is None:
                     # Class-level @RequestMapping, skip
@@ -139,18 +148,53 @@ class SpringBootRegexParser:
                 # It's a method-level @RequestMapping, check for method attribute
                 method_match = re.search(
                     r'method\s*=\s*HttpMethod\.(\w+)',
-                    content[match.start():match.start() + 200]
+                    content_without_comments[match.start():match.start() + 200]
                 )
                 if method_match:
                     http_method = method_match.group(1)
+
+            # Get method boundaries for deduplication
+            method_start = match.start()
+            method_end = self._find_method_end(content_without_comments, method_start)
+
+            raw_matches.append({
+                'annotation_name': annotation_name,
+                'method_path': method_path,
+                'http_method': http_method,
+                'method_start': method_start,
+                'method_end': method_end,
+                'match': match
+            })
+
+        # Deduplicate: for each method block, if there are multiple annotations for the same
+        # HTTP method (e.g., both @GetMapping and @GetMapping("/path")), only keep the one with path
+        deduplicated = []
+        for i, current in enumerate(raw_matches):
+            has_long_form = any(
+                other['http_method'] == current['http_method'] and
+                other['method_path'] and  # has a path
+                abs(other['method_start'] - current['method_start']) < 200  # same method block
+                for other in raw_matches if other is not current
+            )
+            # Skip short form if there's also a long form for the same HTTP method
+            if not current['method_path'] and has_long_form:
+                continue
+            deduplicated.append(current)
+
+        # Second pass: create endpoints from deduplicated matches
+        for match_data in deduplicated:
+            annotation_name = match_data['annotation_name']
+            method_path = match_data['method_path']
+            http_method = match_data['http_method']
+            method_start = match_data['method_start']
+            method_end = match_data['method_end']
+            match = match_data['match']
 
             # Combine class path and method path
             full_path = self._combine_paths(class_path, method_path)
 
             # Extract parameters
-            method_start = match.start()
-            method_end = self._find_method_end(content, method_start)
-            method_content = content[method_start:method_end]
+            method_content = content_without_comments[method_start:method_end]
 
             parameters = self._extract_parameters(method_content)
             has_request_body = self.REQUEST_BODY_PATTERN.search(method_content) is not None
