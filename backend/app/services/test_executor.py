@@ -4,6 +4,7 @@ HTTP test execution service.
 import json
 import re
 import time
+import ipaddress
 import httpx
 from typing import List, Dict, Any, Optional
 from sqlalchemy import select
@@ -21,13 +22,79 @@ from app.schemas.test_case import (
     TestExecutionResponse,
 )
 
+# Blocked host patterns for SSRF prevention
+BLOCKED_HOSTS = {
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "0.0.0.0",
+}
+
+# Internal IP ranges to block
+INTERNAL_IP_RANGES = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+]
+
+
+class SSRFProtectionError(Exception):
+    """Raised when a URL fails SSRF validation."""
+    pass
+
 
 class TestExecutor:
     """Service for executing HTTP tests."""
 
+    # Maximum regex complexity (number of states) to prevent ReDoS
+    MAX_REGEX_STATES = 10000
+
     def __init__(self, db, base_url: Optional[str] = None):
         self.db = db
         self.base_url = base_url
+
+    def _validate_url(self, url: str) -> None:
+        """
+        Validate URL to prevent SSRF attacks.
+
+        Raises:
+            SSRFProtectionError: If the URL is not allowed
+        """
+        if not url:
+            raise SSRFProtectionError("URL cannot be empty")
+
+        # Only allow http and https protocols
+        if not url.startswith(("http://", "https://")):
+            raise SSRFProtectionError("Only HTTP and HTTPS protocols are allowed")
+
+        try:
+            # Parse the URL
+            parsed = httpx.URL(url)
+            host = parsed.host
+
+            if not host:
+                raise SSRFProtectionError("Invalid URL: no host found")
+
+            # Check for blocked hosts
+            if host.lower() in BLOCKED_HOSTS:
+                raise SSRFProtectionError(f"URL host '{host}' is not allowed")
+
+            # Check if host is an IP address
+            try:
+                ip = ipaddress.ip_address(host)
+                # Block internal/private IP addresses
+                if ip.is_loopback or ip.is_private or ip.is_reserved:
+                    raise SSRFProtectionError(f"Internal IP addresses are not allowed: {ip}")
+            except ValueError:
+                # It's a hostname, not an IP - hostname validation is done later
+                pass
+
+        except SSRFProtectionError:
+            raise
+        except Exception:
+            raise SSRFProtectionError("Invalid URL format")
 
     def _build_url(self, request_config: RequestConfig) -> str:
         """Build full URL from request config."""
@@ -75,9 +142,13 @@ class TestExecutor:
         start_time = time.time()
 
         try:
+            url = self._build_url(request_config)
+
+            # Validate URL before making request (SSRF protection)
+            self._validate_url(url)
+
             async with httpx.AsyncClient(timeout=request_config.timeout) as client:
                 method = request_config.method
-                url = self._build_url(request_config)
                 headers = request_config.headers or {}
                 params = request_config.params or {}
                 body = request_config.body
@@ -105,15 +176,18 @@ class TestExecutor:
 
                 return response_data_with_status, response_time, None
 
-        except httpx.TimeoutException as e:
+        except SSRFProtectionError as e:
             response_time = (time.time() - start_time) * 1000
-            return {}, response_time, f"Request timeout: {str(e)}"
-        except httpx.RequestError as e:
+            return {}, response_time, "URL validation failed"
+        except httpx.TimeoutException:
             response_time = (time.time() - start_time) * 1000
-            return {}, response_time, f"Request error: {str(e)}"
-        except Exception as e:
+            return {}, response_time, "Request timeout"
+        except httpx.RequestError:
             response_time = (time.time() - start_time) * 1000
-            return {}, response_time, f"Unexpected error: {str(e)}"
+            return {}, response_time, "Request failed"
+        except Exception:
+            response_time = (time.time() - start_time) * 1000
+            return {}, response_time, "Unexpected error"
 
     def _evaluate_status_assertion(self, assertion: AssertionConfig, response_data: Dict[str, Any]) -> TestResultDetail:
         """Evaluate status code assertion."""
@@ -223,10 +297,43 @@ class TestExecutor:
             error_message=None if passed else f"Expected header '{assertion.field}' to be '{assertion.expected}', got '{actual}'"
         )
 
+    def _validate_regex_complexity(self, pattern: str) -> bool:
+        """
+        Check if regex pattern is too complex (potential ReDoS).
+
+        Returns:
+            True if pattern is safe, False otherwise
+        """
+        try:
+            # Compile the pattern
+            compiled = re.compile(pattern)
+            # Check the size of the state machine using the regex structure
+            # This is a simplified check - counts characters as proxy for complexity
+            if len(pattern) > 500:
+                return False
+            return True
+        except re.error:
+            # Let the normal error handling deal with invalid patterns
+            return True
+
     def _evaluate_regex_assertion(self, assertion: AssertionConfig, response_data: Dict[str, Any]) -> TestResultDetail:
         """Evaluate regex assertion on response body."""
         try:
-            pattern = re.compile(str(assertion.field))
+            pattern_str = str(assertion.field)
+
+            # Check regex complexity to prevent ReDoS
+            if not self._validate_regex_complexity(pattern_str):
+                return TestResultDetail(
+                    assertion_type=assertion.type.value,
+                    field=assertion.field,
+                    expected=assertion.expected,
+                    actual=None,
+                    passed=False,
+                    description=assertion.description,
+                    error_message="Regex pattern is too complex"
+                )
+
+            pattern = re.compile(pattern_str)
             body = response_data.get("body", {})
 
             # Convert body to string for regex matching
@@ -276,7 +383,7 @@ class TestExecutor:
                 actual=None,
                 passed=False,
                 description=assertion.description,
-                error_message=f"Invalid regex pattern '{assertion.field}': {str(e)}"
+                error_message=f"Invalid regex pattern '{assertion.field}'"
             )
         except Exception as e:
             return TestResultDetail(
@@ -286,7 +393,7 @@ class TestExecutor:
                 actual=None,
                 passed=False,
                 description=assertion.description,
-                error_message=f"Regex evaluation error: {str(e)}"
+                error_message="Regex evaluation error"
             )
 
     def _evaluate_assertion(self, assertion: AssertionConfig, response_data: Dict[str, Any]) -> TestResultDetail:

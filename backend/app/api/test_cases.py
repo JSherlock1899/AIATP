@@ -186,6 +186,14 @@ async def execute_test_cases(
             detail="test_case_ids cannot be empty"
         )
 
+    # Limit batch size to prevent unbounded execution
+    MAX_BATCH_SIZE = 100
+    if len(execution_request.test_case_ids) > MAX_BATCH_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Batch size exceeds maximum limit of {MAX_BATCH_SIZE}"
+        )
+
     executor = TestExecutor(db, base_url=execution_request.base_url)
     result = await executor.execute_batch(execution_request.test_case_ids)
 
