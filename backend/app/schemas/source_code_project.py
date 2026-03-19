@@ -14,7 +14,7 @@ class SourceCodeProjectCreate(BaseModel):
     def validate_path(cls, v: str) -> str:
         if ".." in v:
             raise ValueError("Path traversal not allowed")
-        if len(v) < 2 or (not v.startswith("/") and v[1] != ":")::
+        if len(v) < 2 or (not v.startswith("/") and v[1] != ":"):
             raise ValueError("Absolute path required")
         return v
 
