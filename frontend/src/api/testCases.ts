@@ -47,8 +47,8 @@ export const testCasesApi = {
     return apiClient.get(`/projects/${projectId}/test-cases/${testCaseId}`)
   },
 
-  create: (data: CreateTestCaseRequest): Promise<TestCase> => {
-    return apiClient.post('/test-cases', data)
+  create: (projectId: number, data: Omit<CreateTestCaseRequest, 'project_id'>): Promise<TestCase> => {
+    return apiClient.post(`/projects/${projectId}/test-cases`, data)
   },
 
   update: (projectId: number, testCaseId: number, data: Partial<CreateTestCaseRequest>): Promise<TestCase> => {
@@ -59,8 +59,8 @@ export const testCasesApi = {
     return apiClient.delete(`/projects/${projectId}/test-cases/${testCaseId}`)
   },
 
-  execute: (projectId: number, testCaseId: number): Promise<TestResult> => {
-    return apiClient.post(`/projects/${projectId}/test-cases/${testCaseId}/execute`)
+  execute: (projectId: number, testCaseIds: number[]): Promise<TestResult[]> => {
+    return apiClient.post(`/projects/${projectId}/test-cases/execute`, { test_case_ids: testCaseIds })
   },
 
   getResults: (projectId: number, testCaseId: number): Promise<TestResult[]> => {
