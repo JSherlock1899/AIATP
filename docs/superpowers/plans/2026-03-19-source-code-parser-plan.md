@@ -764,11 +764,9 @@ class SourceCodeParseService:
             delete(ApiEndpoint).where(ApiEndpoint.source_code_project_id == project_id)
         )
 
-        # Delete associated api_doc
-        from app.models.api_doc import ApiDoc
-        await self.db.execute(
-            delete(ApiDoc).where(ApiDoc.id == ApiDoc.id)  # Will be refined
-        )
+        # Delete associated api_doc (one-to-one via source_code_projects relationship)
+        if project.api_doc:
+            await self.db.delete(project.api_doc)
 
         await self.db.delete(project)
         await self.db.commit()
@@ -881,7 +879,7 @@ async def parse_source_code(
         )
 
 
-@router.get("/projects", response_model=List[SourceCodeProjectResponse])
+@router.get("", response_model=List[SourceCodeProjectResponse])
 async def list_source_code_projects(
     project_id: int,
     skip: int = Query(0, ge=0),
@@ -899,7 +897,7 @@ async def list_source_code_projects(
     return projects
 
 
-@router.get("/projects/{source_project_id}", response_model=SourceCodeProjectResponse)
+@router.get("/{source_project_id}", response_model=SourceCodeProjectResponse)
 async def get_source_code_project(
     project_id: int,
     source_project_id: int,
@@ -923,7 +921,7 @@ async def get_source_code_project(
     return project
 
 
-@router.get("/projects/{source_project_id}/endpoints")
+@router.get("/{source_project_id}/endpoints")
 async def list_source_code_endpoints(
     project_id: int,
     source_project_id: int,
@@ -950,7 +948,7 @@ async def list_source_code_endpoints(
     return endpoints
 
 
-@router.delete("/projects/{source_project_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{source_project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_source_code_project(
     project_id: int,
     source_project_id: int,
