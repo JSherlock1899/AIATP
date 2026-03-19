@@ -21,8 +21,3 @@ class ApiDoc(Base):
 
     project = relationship("Project")
     endpoints = relationship("ApiEndpoint", back_populates="api_doc")
-    source_code_project = relationship(
-        "SourceCodeProject",
-        back_populates="api_doc",
-        uselist=False
-    )

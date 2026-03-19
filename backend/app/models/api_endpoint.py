@@ -21,7 +21,6 @@ class ApiEndpoint(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     api_doc_id = Column(Integer, ForeignKey("api_docs.id"), nullable=True)
-    source_code_project_id = Column(Integer, ForeignKey("source_code_projects.id"), nullable=True)
     path = Column(String(500), nullable=False, index=True)
     method = Column(SQLEnum(HttpMethod), nullable=False)
     summary = Column(String(500))
