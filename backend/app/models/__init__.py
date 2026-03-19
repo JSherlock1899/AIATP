@@ -4,6 +4,7 @@ from app.models.api_doc import ApiDoc
 from app.models.api_endpoint import ApiEndpoint
 from app.models.test_case import TestCase, TestCaseStatus
 from app.models.test_result import TestResult, TestResultStatus
+from app.models.source_code_project import SourceCodeProject, ParseStatus
 
 __all__ = [
     "User",
@@ -16,4 +17,6 @@ __all__ = [
     "TestCaseStatus",
     "TestResult",
     "TestResultStatus",
+    "SourceCodeProject",
+    "ParseStatus",
 ]

@@ -20,4 +20,9 @@ class ApiDoc(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     project = relationship("Project")
+    source_code_project = relationship(
+        "SourceCodeProject",
+        back_populates="api_doc",
+        uselist=False  # 一对一关系
+    )
     endpoints = relationship("ApiEndpoint", back_populates="api_doc")
