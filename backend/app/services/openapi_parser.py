@@ -16,6 +16,14 @@ from app.schemas.api_doc import (
 log = logging.getLogger(__name__)
 
 
+def _safe_yaml_load(content: str) -> Dict[str, Any]:
+    """
+    Parse YAML content safely using SafeLoader.
+    SafeLoader prevents code execution and alias expansion (billion laughs attack).
+    """
+    return yaml.load(content, Loader=yaml.SafeLoader)
+
+
 class OpenAPIParser:
     """Service for parsing OpenAPI 3.0 / Swagger YAML/JSON documents."""
 
@@ -35,14 +43,14 @@ class OpenAPIParser:
         if content.startswith("{"):
             try:
                 return json.loads(content)
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON: {e}")
+            except json.JSONDecodeError:
+                raise ValueError("Invalid JSON: malformed or unparseable")
 
-        # Try YAML
+        # Try YAML with SafeLoader to prevent billion laughs attack
         try:
-            return yaml.safe_load(content)
-        except yaml.YAMLError as e:
-            raise ValueError(f"Invalid YAML: {e}")
+            return _safe_yaml_load(content)
+        except yaml.YAMLError:
+            raise ValueError("Invalid YAML: malformed or unparseable")
 
     def detect_format(self, content: str) -> str:
         """Detect whether content is YAML or JSON."""
@@ -102,7 +110,7 @@ class OpenAPIParser:
     ) -> Dict[str, Any]:
         """Parse a single operation into an endpoint dictionary."""
         # Get parameters from path item level
-        path_params = {p["name"]: p for p in path_item_params(path, method, spec)}
+        path_params = {p["name"]: p for p in path_item_params(path, spec)}
 
         # Get operation-level parameters
         operation_params = operation.get("parameters", [])
@@ -158,18 +166,13 @@ class OpenAPIParser:
         }
 
 
-def path_item_params(path: str, method: str, spec: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Extract path-level parameters for a given path and method."""
+def path_item_params(path: str, spec: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Extract path-level parameters for a given path."""
     path_item = spec.get("paths", {}).get(path, {})
     params = path_item.get("parameters", [])
 
-    # Filter parameters that apply to this method
-    method_params = []
-    for param in params:
-        if param.get("in") == "path":
-            method_params.append(param)
-
-    return method_params
+    # Filter to only return path-level parameters
+    return [param for param in params if param.get("in") == "path"]
 
 
 class ApiDocService:
@@ -196,18 +199,20 @@ class ApiDocService:
         try:
             parsed_data = self.parser.parse_content(import_data.content)
         except ValueError as e:
+            log.warning(f"Failed to parse OpenAPI document for project {project_id}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to parse document: {e}"
+                detail="Failed to parse document: malformed or unsupported format"
             )
 
         # Validate OpenAPI format
         try:
             openapi_version, version_info = self.parser.validate_openapi(parsed_data)
         except ValueError as e:
+            log.warning(f"Invalid OpenAPI document for project {project_id}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid OpenAPI document: {e}"
+                detail="Invalid OpenAPI document: missing or unsupported version"
             )
 
         # Create API document

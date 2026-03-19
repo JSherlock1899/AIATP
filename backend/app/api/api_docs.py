@@ -43,6 +43,10 @@ async def import_api_doc(
     return api_doc
 
 
+# Maximum file size for upload: 10MB
+MAX_FILE_SIZE = 10 * 1024 * 1024
+
+
 @router.post("/import/file", response_model=ApiDocResponse, status_code=status.HTTP_201_CREATED)
 async def import_api_doc_file(
     project_id: int,
@@ -57,11 +61,19 @@ async def import_api_doc_file(
     Import an OpenAPI document from a file upload.
 
     Supports YAML (.yaml, .yml) and JSON (.json) files.
+    Maximum file size: 10MB.
     """
     await verify_project_access(project_id, current_user.id, db)
 
     # Read file content
     content = await file.read()
+
+    # Check file size limit
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File size exceeds maximum limit of {MAX_FILE_SIZE // (1024 * 1024)}MB"
+        )
 
     # Detect and decode content
     try:
