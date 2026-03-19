@@ -20,6 +20,7 @@ class Project(Base):
     name = Column(String(100), nullable=False)
     description = Column(Text)
     project_key = Column(String(20), unique=True, index=True, nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

@@ -560,3 +560,342 @@ async def test_project_key_normalized_to_uppercase(client: AsyncClient):
     )
     assert response.status_code == 201
     assert response.json()["project_key"] == "LOWERCASE"
+
+
+# Permission Tests
+
+@pytest.mark.asyncio
+async def test_get_project_non_member_forbidden(client: AsyncClient):
+    """Test that non-members cannot get project details."""
+    # Register owner
+    await client.post(
+        "/auth/register",
+        json={"email": "permowner@example.com", "username": "permowner", "password": "password123"}
+    )
+    # Register non-member
+    await client.post(
+        "/auth/register",
+        json={"email": "nonmember@example.com", "username": "nonmember", "password": "password123"}
+    )
+
+    owner_login = await client.post(
+        "/auth/login", json={"email": "permowner@example.com", "password": "password123"}
+    )
+    owner_token = owner_login.json()["access_token"]
+
+    nonmember_login = await client.post(
+        "/auth/login", json={"email": "nonmember@example.com", "password": "password123"}
+    )
+    nonmember_token = nonmember_login.json()["access_token"]
+
+    # Create project
+    create_response = await client.post(
+        "/projects",
+        json={"name": "Perm Test", "project_key": "PERMTEST"},
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+    project_id = create_response.json()["id"]
+
+    # Non-member tries to get project
+    response = await client.get(
+        f"/projects/{project_id}",
+        headers={"Authorization": f"Bearer {nonmember_token}"}
+    )
+    assert response.status_code == 403
+    assert "Not a project member" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_update_project_non_member_forbidden(client: AsyncClient):
+    """Test that non-members cannot update project."""
+    await client.post(
+        "/auth/register",
+        json={"email": "updowner@example.com", "username": "updowner", "password": "password123"}
+    )
+    await client.post(
+        "/auth/register",
+        json={"email": "updnonmember@example.com", "username": "updnonmember", "password": "password123"}
+    )
+
+    owner_login = await client.post(
+        "/auth/login", json={"email": "updowner@example.com", "password": "password123"}
+    )
+    owner_token = owner_login.json()["access_token"]
+
+    nonmember_login = await client.post(
+        "/auth/login", json={"email": "updnonmember@example.com", "password": "password123"}
+    )
+    nonmember_token = nonmember_login.json()["access_token"]
+
+    create_response = await client.post(
+        "/projects",
+        json={"name": "Update Perm", "project_key": "UPDPERM"},
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+    project_id = create_response.json()["id"]
+
+    response = await client.put(
+        f"/projects/{project_id}",
+        json={"name": "Hacked Name"},
+        headers={"Authorization": f"Bearer {nonmember_token}"}
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_update_project_member_but_not_admin_forbidden(client: AsyncClient):
+    """Test that regular members cannot update project."""
+    await client.post(
+        "/auth/register",
+        json={"email": "membowner@example.com", "username": "membowner", "password": "password123"}
+    )
+    await client.post(
+        "/auth/register",
+        json={"email": "regularmember@example.com", "username": "regularmember", "password": "password123"}
+    )
+
+    owner_login = await client.post(
+        "/auth/login", json={"email": "membowner@example.com", "password": "password123"}
+    )
+    owner_token = owner_login.json()["access_token"]
+
+    member_login = await client.post(
+        "/auth/login", json={"email": "regularmember@example.com", "password": "password123"}
+    )
+    member_token = member_login.json()["access_token"]
+    member_response = await client.get(
+        "/auth/me", headers={"Authorization": f"Bearer {member_token}"}
+    )
+    member_id = member_response.json()["id"]
+
+    create_response = await client.post(
+        "/projects",
+        json={"name": "Member Perm Test", "project_key": "MEMBPERM"},
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+    project_id = create_response.json()["id"]
+
+    # Add member as developer (not admin)
+    await client.post(
+        f"/projects/{project_id}/members?user_id={member_id}&role=developer",
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+
+    # Member tries to update
+    response = await client.put(
+        f"/projects/{project_id}",
+        json={"name": "Hacked Name"},
+        headers={"Authorization": f"Bearer {member_token}"}
+    )
+    assert response.status_code == 403
+    assert "Admin or owner required" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_delete_project_non_owner_forbidden(client: AsyncClient):
+    """Test that non-owners cannot delete project."""
+    await client.post(
+        "/auth/register",
+        json={"email": "delowner@example.com", "username": "delowner", "password": "password123"}
+    )
+    await client.post(
+        "/auth/register",
+        json={"email": "delnonowner@example.com", "username": "delnonowner", "password": "password123"}
+    )
+
+    owner_login = await client.post(
+        "/auth/login", json={"email": "delowner@example.com", "password": "password123"}
+    )
+    owner_token = owner_login.json()["access_token"]
+
+    nonowner_login = await client.post(
+        "/auth/login", json={"email": "delnonowner@example.com", "password": "password123"}
+    )
+    nonowner_token = nonowner_login.json()["access_token"]
+
+    create_response = await client.post(
+        "/projects",
+        json={"name": "Delete Perm", "project_key": "DELPERM"},
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+    project_id = create_response.json()["id"]
+
+    # Non-owner is not a member, so should get "Not a project member"
+    response = await client.delete(
+        f"/projects/{project_id}",
+        headers={"Authorization": f"Bearer {nonowner_token}"}
+    )
+    assert response.status_code == 403
+    assert "Not a project member" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_delete_project_member_but_not_owner_forbidden(client: AsyncClient):
+    """Test that members who are not owners cannot delete project."""
+    await client.post(
+        "/auth/register",
+        json={"email": "delowner2@example.com", "username": "delowner2", "password": "password123"}
+    )
+    await client.post(
+        "/auth/register",
+        json={"email": "delmember@example.com", "username": "delmember", "password": "password123"}
+    )
+
+    owner_login = await client.post(
+        "/auth/login", json={"email": "delowner2@example.com", "password": "password123"}
+    )
+    owner_token = owner_login.json()["access_token"]
+
+    member_login = await client.post(
+        "/auth/login", json={"email": "delmember@example.com", "password": "password123"}
+    )
+    member_token = member_login.json()["access_token"]
+    member_response = await client.get(
+        "/auth/me", headers={"Authorization": f"Bearer {member_token}"}
+    )
+    member_id = member_response.json()["id"]
+
+    create_response = await client.post(
+        "/projects",
+        json={"name": "Delete Perm 2", "project_key": "DELPERM2"},
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+    project_id = create_response.json()["id"]
+
+    # Add member as developer (not owner)
+    await client.post(
+        f"/projects/{project_id}/members?user_id={member_id}&role=developer",
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+
+    # Member (not owner) tries to delete
+    response = await client.delete(
+        f"/projects/{project_id}",
+        headers={"Authorization": f"Bearer {member_token}"}
+    )
+    assert response.status_code == 403
+    assert "Only owner can perform this action" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_add_member_non_admin_forbidden(client: AsyncClient):
+    """Test that non-admin cannot add members."""
+    await client.post(
+        "/auth/register",
+        json={"email": "addowner@example.com", "username": "addowner", "password": "password123"}
+    )
+    await client.post(
+        "/auth/register",
+        json={"email": "addmember@example.com", "username": "addmember", "password": "password123"}
+    )
+    await client.post(
+        "/auth/register",
+        json={"email": "newperson@example.com", "username": "newperson", "password": "password123"}
+    )
+
+    owner_login = await client.post(
+        "/auth/login", json={"email": "addowner@example.com", "password": "password123"}
+    )
+    owner_token = owner_login.json()["access_token"]
+
+    member_login = await client.post(
+        "/auth/login", json={"email": "addmember@example.com", "password": "password123"}
+    )
+    member_token = member_login.json()["access_token"]
+    member_response = await client.get(
+        "/auth/me", headers={"Authorization": f"Bearer {member_token}"}
+    )
+    member_id = member_response.json()["id"]
+
+    newperson_login = await client.post(
+        "/auth/login", json={"email": "newperson@example.com", "password": "password123"}
+    )
+    newperson_token = newperson_login.json()["access_token"]
+    newperson_response = await client.get(
+        "/auth/me", headers={"Authorization": f"Bearer {newperson_token}"}
+    )
+    newperson_id = newperson_response.json()["id"]
+
+    create_response = await client.post(
+        "/projects",
+        json={"name": "Add Member Perm", "project_key": "ADDMEMPERM"},
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+    project_id = create_response.json()["id"]
+
+    # Add member as viewer (not admin)
+    await client.post(
+        f"/projects/{project_id}/members?user_id={member_id}&role=viewer",
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+
+    # Member tries to add another member
+    response = await client.post(
+        f"/projects/{project_id}/members?user_id={newperson_id}&role=developer",
+        headers={"Authorization": f"Bearer {member_token}"}
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_remove_member_non_admin_forbidden(client: AsyncClient):
+    """Test that non-admin cannot remove members."""
+    await client.post(
+        "/auth/register",
+        json={"email": "remowner@example.com", "username": "remowner", "password": "password123"}
+    )
+    await client.post(
+        "/auth/register",
+        json={"email": "remmember1@example.com", "username": "remmember1", "password": "password123"}
+    )
+    await client.post(
+        "/auth/register",
+        json={"email": "remmember2@example.com", "username": "remmember2", "password": "password123"}
+    )
+
+    owner_login = await client.post(
+        "/auth/login", json={"email": "remowner@example.com", "password": "password123"}
+    )
+    owner_token = owner_login.json()["access_token"]
+
+    member1_login = await client.post(
+        "/auth/login", json={"email": "remmember1@example.com", "password": "password123"}
+    )
+    member1_token = member1_login.json()["access_token"]
+    member1_response = await client.get(
+        "/auth/me", headers={"Authorization": f"Bearer {member1_token}"}
+    )
+    member1_id = member1_response.json()["id"]
+
+    member2_login = await client.post(
+        "/auth/login", json={"email": "remmember2@example.com", "password": "password123"}
+    )
+    member2_token = member2_login.json()["access_token"]
+    member2_response = await client.get(
+        "/auth/me", headers={"Authorization": f"Bearer {member2_token}"}
+    )
+    member2_id = member2_response.json()["id"]
+
+    create_response = await client.post(
+        "/projects",
+        json={"name": "Remove Member Perm", "project_key": "REMMEMPERM"},
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+    project_id = create_response.json()["id"]
+
+    # Add both members as developer (not admin)
+    await client.post(
+        f"/projects/{project_id}/members?user_id={member1_id}&role=developer",
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+    await client.post(
+        f"/projects/{project_id}/members?user_id={member2_id}&role=developer",
+        headers={"Authorization": f"Bearer {owner_token}"}
+    )
+
+    # Member1 tries to remove member2
+    response = await client.delete(
+        f"/projects/{project_id}/members/{member2_id}",
+        headers={"Authorization": f"Bearer {member1_token}"}
+    )
+    assert response.status_code == 403

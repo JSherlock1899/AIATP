@@ -61,15 +61,10 @@ async def get_project(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get a project by ID with its members.
+    Get a project by ID with its members. User must be a member.
     """
     service = ProjectService(db)
-    project = await service.get_project_by_id(project_id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found"
-        )
+    project = await service._verify_project_access(project_id, current_user.id)
     return project
 
 
@@ -84,7 +79,7 @@ async def update_project(
     Update a project. Only owner or admin can update.
     """
     service = ProjectService(db)
-    project = await service.update_project(project_id, project_data)
+    project = await service.update_project(project_id, project_data, current_user.id)
     return project
 
 
@@ -98,7 +93,7 @@ async def delete_project(
     Delete a project. Only owner can delete.
     """
     service = ProjectService(db)
-    await service.delete_project(project_id)
+    await service.delete_project(project_id, current_user.id)
 
 
 @router.post("/{project_id}/members", response_model=ProjectMemberResponse, status_code=status.HTTP_201_CREATED)
@@ -113,7 +108,7 @@ async def add_member(
     Add a member to a project. Only owner or admin can add members.
     """
     service = ProjectService(db)
-    member = await service.add_member(project_id, user_id, role)
+    member = await service.add_member(project_id, user_id, role, current_user.id)
     return member
 
 
@@ -128,4 +123,4 @@ async def remove_member(
     Remove a member from a project. Only owner or admin can remove members.
     """
     service = ProjectService(db)
-    await service.remove_member(project_id, user_id)
+    await service.remove_member(project_id, user_id, current_user.id)
