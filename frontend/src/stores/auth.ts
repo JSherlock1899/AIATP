@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import apiClient from '@/api'
 
@@ -10,17 +10,15 @@ export interface User {
 }
 
 export interface LoginResponse {
-  token: string
-  user: User
+  access_token: string
+  token_type: string
 }
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('token'))
   const user = ref<User | null>(null)
 
-  const isLoggedIn = () => {
-    return !!token.value
-  }
+  const isLoggedIn = computed(() => !!token.value)
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
@@ -28,9 +26,8 @@ export const useAuthStore = defineStore('auth', () => {
         username,
         password
       }) as Promise<LoginResponse>)
-      token.value = response.token
-      user.value = response.user
-      localStorage.setItem('token', response.token)
+      token.value = response.access_token
+      localStorage.setItem('token', response.access_token)
       ElMessage.success('登录成功')
       return true
     } catch (error) {

@@ -147,7 +147,7 @@ const getMethodType = (method: string) => {
 
 const handleExecute = async (testCaseId: number) => {
   try {
-    await testCasesApi.execute(projectId, testCaseId)
+    await testCasesApi.execute(projectId, [testCaseId])
     ElMessage.success('执行成功')
     activeTab.value = 'results'
   } catch (error) {
@@ -191,7 +191,7 @@ const handleSave = async () => {
           await testCasesApi.update(projectId, editingId.value, caseForm)
           ElMessage.success('更新成功')
         } else {
-          await testCasesApi.create(caseForm)
+          await testCasesApi.create(projectId, caseForm)
           ElMessage.success('添加成功')
         }
         showAddDialog.value = false

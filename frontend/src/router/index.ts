@@ -35,9 +35,9 @@ router.beforeEach((to, _from, next) => {
   const authStore = useAuthStore()
   const requiresAuth = to.meta.requiresAuth !== false
 
-  if (requiresAuth && !authStore.isLoggedIn()) {
+  if (requiresAuth && !authStore.isLoggedIn) {
     next('/login')
-  } else if (to.path === '/login' && authStore.isLoggedIn()) {
+  } else if (to.path === '/login' && authStore.isLoggedIn) {
     next('/projects')
   } else {
     next()
