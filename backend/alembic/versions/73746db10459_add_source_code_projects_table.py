@@ -24,6 +24,7 @@ def upgrade() -> None:
         CREATE TABLE source_code_projects (
             id INTEGER NOT NULL,
             project_id INTEGER NOT NULL,
+            api_doc_id INTEGER,
             name VARCHAR(200) NOT NULL,
             source_path VARCHAR(500) NOT NULL,
             language VARCHAR(50),
@@ -33,14 +34,15 @@ def upgrade() -> None:
             created_at DATETIME DEFAULT (CURRENT_TIMESTAMP),
             parsed_at DATETIME,
             PRIMARY KEY (id),
-            FOREIGN KEY(project_id) REFERENCES projects(id)
+            FOREIGN KEY(project_id) REFERENCES projects(id),
+            FOREIGN KEY(api_doc_id) REFERENCES api_docs(id)
         )
     ''')
     op.execute('CREATE INDEX ix_source_code_projects_id ON source_code_projects(id)')
 
     # Recreate api_endpoints table with:
     # 1. api_doc_id as nullable
-    # 2. source_code_project_id column added
+    # 2. source_code_project_id column added with foreign key
     op.execute('''
         CREATE TABLE api_endpoints_new (
             id INTEGER NOT NULL,
@@ -58,7 +60,8 @@ def upgrade() -> None:
             is_active BOOLEAN,
             created_at DATETIME,
             updated_at DATETIME,
-            PRIMARY KEY (id)
+            PRIMARY KEY (id),
+            FOREIGN KEY(source_code_project_id) REFERENCES source_code_projects(id)
         )
     ''')
 

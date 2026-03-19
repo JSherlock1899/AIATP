@@ -18,6 +18,7 @@ class SourceCodeProject(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    api_doc_id = Column(Integer, ForeignKey("api_docs.id"), nullable=True)
     name = Column(String(200), nullable=False)
     source_path = Column(String(500), nullable=False)
     language = Column(String(50), default="spring-boot")
