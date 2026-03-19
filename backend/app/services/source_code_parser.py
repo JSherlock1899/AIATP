@@ -313,8 +313,16 @@ class SpringBootRegexParser:
         return end
 
 
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit per file
+
+
 def parse_java_file(file_path: str) -> List[ParsedEndpoint]:
     """Convenience function to parse a single Java file."""
+    # Check file size before reading
+    file_size = os.path.getsize(file_path)
+    if file_size > MAX_FILE_SIZE:
+        raise ValueError(f"File too large ({file_size} bytes): {file_path}. Max size is {MAX_FILE_SIZE} bytes")
+
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
     parser = SpringBootRegexParser()
@@ -344,9 +352,21 @@ class SourceCodeParseService:
         """Validate and sanitize source path."""
         path = path.strip()
 
+        # Check for null bytes (path traversal attempt)
+        if "\0" in path:
+            raise ValueError("Null bytes not allowed in path")
+
+        # Check for URL-encoded path traversal
+        if "%2e%2e" in path.lower() or "%252e" in path.lower():
+            raise ValueError("URL-encoded path traversal not allowed")
+
         # Check for path traversal
         if ".." in path:
             raise ValueError("Path traversal not allowed")
+
+        # Check for Windows-style path traversal
+        if "..\\" in path:
+            raise ValueError("Windows-style path traversal not allowed")
 
         # Check absolute path
         if not os.path.isabs(path):
@@ -400,11 +420,11 @@ class SourceCodeParseService:
         if not project:
             raise ValueError(f"Source code project not found: {project_id}")
 
-        # Update status
-        project.status = ParseStatus.PARSING
-        await self.db.commit()
-
         try:
+            # Update status inside try block to avoid orphaned PARSING state
+            project.status = ParseStatus.PARSING
+            await self.db.commit()
+
             # Scan for Java files
             parser = SpringBootRegexParser()
             java_files = parser.scan_java_files(project.source_path, self.MAX_DEPTH)
@@ -417,13 +437,19 @@ class SourceCodeParseService:
 
             # Parse each file
             all_endpoints = []
+            failed_files = []
             for java_file in java_files:
                 try:
                     endpoints = parse_java_file(java_file)
                     all_endpoints.extend(endpoints)
                 except Exception as e:
+                    failed_files.append((java_file, str(e)))
                     log.warning(f"Failed to parse {java_file}: {e}")
                     continue
+
+            # Log summary of failed files if any
+            if failed_files:
+                log.warning(f"Failed to parse {len(failed_files)}/{len(java_files)} files: {[f[0] for f in failed_files]}")
 
             # Create ApiDoc entry for this source project
             from app.models.api_doc import ApiDoc
