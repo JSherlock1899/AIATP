@@ -266,17 +266,25 @@ const handleParse = async () => {
   })
 }
 
-const pollParseStatus = () => {
+const MAX_POLL_RETRIES = 30
+const POLL_INTERVAL_MS = 2000
+
+const pollParseStatus = (retries = 0) => {
   const checkStatus = async () => {
     await fetchSourceProjects()
     const pendingOrParsing = sourceProjects.value.some(
       p => p.status === 'pending' || p.status === 'parsing'
     )
     if (pendingOrParsing) {
-      setTimeout(checkStatus, 2000)
+      if (retries >= MAX_POLL_RETRIES) {
+        ElMessage.warning('解析状态查询超时，请稍后手动刷新页面查看结果')
+        return
+      }
+      setTimeout(checkStatus, POLL_INTERVAL_MS)
+      retries++
     }
   }
-  setTimeout(checkStatus, 2000)
+  setTimeout(checkStatus, POLL_INTERVAL_MS)
 }
 
 const handleReParse = async (item: SourceCodeProject) => {
