@@ -7,8 +7,8 @@
         </div>
       </template>
       <el-form :model="loginForm" :rules="rules" ref="formRef" label-width="80px">
-        <el-form-item label="用户名" prop="username">
-          <el-input v-model="loginForm.username" placeholder="请输入用户名" />
+        <el-form-item label="邮箱" prop="username">
+          <el-input v-model="loginForm.username" placeholder="请输入邮箱" />
         </el-form-item>
         <el-form-item label="密码" prop="password">
           <el-input
@@ -24,6 +24,9 @@
           </el-button>
         </el-form-item>
       </el-form>
+      <div class="footer">
+        没有账号？<el-link type="primary" @click="$router.push('/register')">立即注册</el-link>
+      </div>
     </el-card>
   </div>
 </template>
@@ -88,5 +91,11 @@ const handleLogin = async () => {
   text-align: center;
   font-size: 20px;
   font-weight: bold;
+}
+
+.footer {
+  text-align: center;
+  margin-top: 16px;
+  color: #666;
 }
 </style>

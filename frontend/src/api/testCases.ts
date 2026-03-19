@@ -1,69 +1,142 @@
 import apiClient from './index'
 
+// 后端 TestCaseResponse 格式
 export interface TestCase {
   id: number
-  project_id: number
+  endpoint_id: number
   name: string
-  method: string
-  path: string
-  headers: Record<string, string>
-  body: string
-  expected_status: number
+  description: string | null
+  status: string
+  request_config: {
+    method: string
+    url: string
+    headers?: Record<string, string>
+    params?: Record<string, string>
+    body?: any
+    timeout?: number
+  }
+  test_data: Record<string, any> | null
+  expected_response: {
+    assertions: Assertion[]
+  } | null
+  is_enabled: boolean
   created_at: string
-  updated_at: string
+  updated_at: string | null
 }
 
-export interface TestCaseListResponse {
-  data: TestCase[]
-  total: number
-}
-
-export interface CreateTestCaseRequest {
-  project_id: number
-  name: string
-  method: string
-  path: string
-  headers?: Record<string, string>
-  body?: string
-  expected_status?: number
+export interface Assertion {
+  type: 'status' | 'jsonpath' | 'header' | 'regex'
+  field: string
+  expected: any
+  description?: string
 }
 
 export interface TestResult {
   id: number
   test_case_id: number
   status: string
-  response_status: number
-  response_body: string
+  response_data: Record<string, any> | null
   response_time: number
+  error_message: string | null
+  assertion_results: AssertionResult[]
   executed_at: string
 }
 
+export interface AssertionResult {
+  assertion_type: string
+  field: string
+  expected: any
+  actual: any
+  passed: boolean
+  description?: string
+  error_message?: string
+}
+
+export interface CreateTestCaseRequest {
+  endpoint_id: number
+  name: string
+  description?: string
+  request_config: {
+    method: string
+    url: string
+    headers?: Record<string, string>
+    params?: Record<string, string>
+    body?: any
+    timeout?: number
+  }
+  test_data?: Record<string, any>
+  assertions: Assertion[]
+  is_enabled?: boolean
+}
+
+export interface UpdateTestCaseRequest {
+  name?: string
+  description?: string
+  request_config?: {
+    method: string
+    url: string
+    headers?: Record<string, string>
+    params?: Record<string, string>
+    body?: any
+    timeout?: number
+  }
+  test_data?: Record<string, any>
+  assertions?: Assertion[]
+  is_enabled?: boolean
+}
+
+export interface TestExecutionRequest {
+  test_case_ids: number[]
+  base_url?: string
+}
+
+export interface TestExecutionResponse {
+  total: number
+  passed: number
+  failed: number
+  error: number
+  skipped: number
+  results: TestResult[]
+  execution_time: number
+}
+
 export const testCasesApi = {
-  list: (projectId: number): Promise<TestCaseListResponse> => {
-    return apiClient.get(`/projects/${projectId}/test-cases`)
+  // 列出所有测试用例（可按 endpoint_id 筛选）
+  list: (endpointId?: number): Promise<TestCase[]> => {
+    const params = endpointId ? `?endpoint_id=${endpointId}` : ''
+    return apiClient.get(`/test-cases${params}`)
   },
 
-  getById: (projectId: number, testCaseId: number): Promise<TestCase> => {
-    return apiClient.get(`/projects/${projectId}/test-cases/${testCaseId}`)
+  // 获取单个测试用例
+  getById: (testCaseId: number): Promise<TestCase> => {
+    return apiClient.get(`/test-cases/${testCaseId}`)
   },
 
-  create: (projectId: number, data: Omit<CreateTestCaseRequest, 'project_id'>): Promise<TestCase> => {
-    return apiClient.post(`/projects/${projectId}/test-cases`, data)
+  // 创建测试用例
+  create: (data: CreateTestCaseRequest): Promise<TestCase> => {
+    return apiClient.post('/test-cases', data)
   },
 
-  update: (projectId: number, testCaseId: number, data: Partial<CreateTestCaseRequest>): Promise<TestCase> => {
-    return apiClient.put(`/projects/${projectId}/test-cases/${testCaseId}`, data)
+  // 更新测试用例
+  update: (testCaseId: number, data: UpdateTestCaseRequest): Promise<TestCase> => {
+    return apiClient.put(`/test-cases/${testCaseId}`, data)
   },
 
-  delete: (projectId: number, testCaseId: number): Promise<void> => {
-    return apiClient.delete(`/projects/${projectId}/test-cases/${testCaseId}`)
+  // 删除测试用例
+  delete: (testCaseId: number): Promise<void> => {
+    return apiClient.delete(`/test-cases/${testCaseId}`)
   },
 
-  execute: (projectId: number, testCaseIds: number[]): Promise<TestResult[]> => {
-    return apiClient.post(`/projects/${projectId}/test-cases/execute`, { test_case_ids: testCaseIds })
+  // 批量执行测试用例
+  execute: (testCaseIds: number[], baseUrl?: string): Promise<TestExecutionResponse> => {
+    return apiClient.post('/test-cases/execute', {
+      test_case_ids: testCaseIds,
+      base_url: baseUrl
+    })
   },
 
-  getResults: (projectId: number, testCaseId: number): Promise<TestResult[]> => {
-    return apiClient.get(`/projects/${projectId}/test-cases/${testCaseId}/results`)
+  // 获取测试用例的历史结果
+  getResults: (testCaseId: number): Promise<TestResult[]> => {
+    return apiClient.get(`/test-cases/${testCaseId}/results`)
   }
 }

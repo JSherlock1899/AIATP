@@ -14,16 +14,23 @@ export interface LoginResponse {
   token_type: string
 }
 
+export interface RegisterResponse {
+  id: number
+  username: string
+  email: string
+  created_at: string
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('token'))
   const user = ref<User | null>(null)
 
   const isLoggedIn = computed(() => !!token.value)
 
-  const login = async (username: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string): Promise<boolean> => {
     try {
       const response = await (apiClient.post('/auth/login', {
-        username,
+        email,
         password
       }) as Promise<LoginResponse>)
       token.value = response.access_token
@@ -42,6 +49,20 @@ export const useAuthStore = defineStore('auth', () => {
     ElMessage.success('已退出登录')
   }
 
+  const register = async (username: string, email: string, password: string): Promise<boolean> => {
+    try {
+      await (apiClient.post('/auth/register', {
+        username,
+        email,
+        password
+      }) as Promise<RegisterResponse>)
+      ElMessage.success('注册成功，请登录')
+      return true
+    } catch (error) {
+      return false
+    }
+  }
+
   const getToken = () => {
     return token.value
   }
@@ -52,6 +73,7 @@ export const useAuthStore = defineStore('auth', () => {
     isLoggedIn,
     login,
     logout,
+    register,
     getToken
   }
 })

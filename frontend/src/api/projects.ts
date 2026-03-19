@@ -4,7 +4,7 @@ export interface Project {
   id: number
   name: string
   description: string
-  base_url: string
+  project_key: string
   created_at: string
   updated_at: string
 }
@@ -17,7 +17,7 @@ export interface ProjectListResponse {
 export interface CreateProjectRequest {
   name: string
   description: string
-  base_url: string
+  project_key: string
 }
 
 export const projectsApi = {

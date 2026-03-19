@@ -9,7 +9,7 @@
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="name" label="项目名称" />
       <el-table-column prop="description" label="描述" show-overflow-tooltip />
-      <el-table-column prop="base_url" label="Base URL" show-overflow-tooltip />
+      <el-table-column prop="project_key" label="项目Key" width="120" />
       <el-table-column prop="created_at" label="创建时间" width="180">
         <template #default="{ row }">
           {{ formatDate(row.created_at) }}
@@ -31,8 +31,8 @@
         <el-form-item label="描述" prop="description">
           <el-input v-model="createForm.description" type="textarea" placeholder="请输入项目描述" />
         </el-form-item>
-        <el-form-item label="Base URL" prop="base_url">
-          <el-input v-model="createForm.base_url" placeholder="如: https://api.example.com" />
+        <el-form-item label="项目Key" prop="project_key">
+          <el-input v-model="createForm.project_key" placeholder="如: MAP (2-20位字母数字)" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -60,19 +60,21 @@ const createFormRef = ref<FormInstance>()
 const createForm = reactive({
   name: '',
   description: '',
-  base_url: ''
+  project_key: ''
 })
 
 const createRules: FormRules = {
   name: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
-  base_url: [{ required: true, message: '请输入 Base URL', trigger: 'blur' }]
+  project_key: [
+    { required: true, message: '请输入项目Key', trigger: 'blur' },
+    { pattern: /^[a-zA-Z0-9]{2,20}$/, message: '项目Key为2-20位字母数字', trigger: 'blur' }
+  ]
 }
 
 const fetchProjects = async () => {
   loading.value = true
   try {
-    const response = await projectsApi.list()
-    projects.value = response.data
+    projects.value = await projectsApi.list()
   } catch (error) {
     ElMessage.error('获取项目列表失败')
   } finally {
