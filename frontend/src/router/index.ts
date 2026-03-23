@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -22,19 +21,19 @@ const routes: RouteRecordRaw[] = [
     path: '/projects',
     name: 'Projects',
     component: () => import('@/views/Projects.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: false }
   },
   {
     path: '/projects/:id',
     name: 'ProjectDetail',
     component: () => import('@/views/ProjectDetail.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: false }
   },
   {
     path: '/projects/:id/source-code',
     name: 'SourceCodeParse',
     component: () => import('@/views/SourceCodeParse.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: false }
   }
 ]
 
@@ -44,16 +43,8 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
-  const authStore = useAuthStore()
-  const requiresAuth = to.meta.requiresAuth !== false
-
-  if (requiresAuth && !authStore.isLoggedIn) {
-    next('/login')
-  } else if (to.path === '/login' && authStore.isLoggedIn) {
-    next('/projects')
-  } else {
-    next()
-  }
+  // No auth required - allow all navigation
+  next()
 })
 
 export default router

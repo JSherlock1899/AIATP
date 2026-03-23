@@ -13,6 +13,10 @@ class AssertionType(str, Enum):
     JSONPATH = "jsonpath"
     HEADER = "header"
     REGEX = "regex"
+    RESPONSE_TIME = "response_time"
+    JSON_SIZE = "json_size"
+    ARRAY_COUNT = "array_count"
+    RANGE = "range"
 
 
 class AssertionConfig(BaseModel):

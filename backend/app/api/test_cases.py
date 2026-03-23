@@ -1,11 +1,14 @@
 """
 Test case management API routes.
 """
+import json
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from typing import List
+from typing import List, AsyncGenerator
 
 from app.core.database import get_db
 from app.schemas.test_case import (
@@ -17,7 +20,7 @@ from app.schemas.test_case import (
     TestResultResponse,
 )
 from app.services.test_executor import TestExecutor
-from app.api.auth import get_current_user
+from app.api.auth import get_guest_user
 from app.models.user import User
 from app.models.test_case import TestCase, TestCaseStatus
 from app.models.api_endpoint import ApiEndpoint
@@ -44,7 +47,7 @@ async def get_test_case_or_404(test_case_id: int, db: AsyncSession) -> TestCase:
 @router.post("", response_model=TestCaseResponse, status_code=status.HTTP_201_CREATED)
 async def create_test_case(
     test_case_data: TestCaseCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -89,7 +92,7 @@ async def list_test_cases(
     endpoint_id: int = Query(None, description="Filter by endpoint ID"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -111,7 +114,7 @@ async def list_test_cases(
 @router.get("/{test_case_id}", response_model=TestCaseResponse)
 async def get_test_case(
     test_case_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -125,7 +128,7 @@ async def get_test_case(
 async def update_test_case(
     test_case_id: int,
     test_case_data: TestCaseUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -159,7 +162,7 @@ async def update_test_case(
 @router.delete("/{test_case_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_test_case(
     test_case_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -174,7 +177,7 @@ async def delete_test_case(
 @router.post("/execute", response_model=TestExecutionResponse)
 async def execute_test_cases(
     execution_request: TestExecutionRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -200,12 +203,58 @@ async def execute_test_cases(
     return result
 
 
+@router.post("/execute/stream")
+async def execute_test_cases_stream(
+    execution_request: TestExecutionRequest,
+    current_user: User = Depends(get_guest_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Execute test cases with SSE streaming progress updates.
+
+    Streams progress events as each test case is executed.
+    Event types:
+    - progress: Current execution progress
+    - result: Individual test result
+    - complete: Execution completed with summary
+    """
+    if not execution_request.test_case_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="test_case_ids cannot be empty"
+        )
+
+    MAX_BATCH_SIZE = 100
+    if len(execution_request.test_case_ids) > MAX_BATCH_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Batch size exceeds maximum limit of {MAX_BATCH_SIZE}"
+        )
+
+    executor = TestExecutor(db, base_url=execution_request.base_url)
+
+    async def event_generator():
+        async for event in executor.execute_batch_stream(execution_request.test_case_ids):
+            yield f"event: {event['event']}\ndata: {json.dumps(event['data'])}\n\n"
+            await asyncio.sleep(0)  # Allow other coroutines to run
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @router.get("/{test_case_id}/results", response_model=List[TestResultResponse])
 async def get_test_case_results(
     test_case_id: int,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """

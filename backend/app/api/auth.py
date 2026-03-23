@@ -57,6 +57,40 @@ async def get_current_user(
     return user
 
 
+# Guest user for development (no auth required)
+_guest_user_cache = None
+
+
+async def get_guest_user(db: AsyncSession = Depends(get_db)) -> User:
+    """
+    Return a guest user for development. Creates a default user if none exists.
+    This bypasses authentication for easier testing.
+    """
+    global _guest_user_cache
+    if _guest_user_cache is not None:
+        return _guest_user_cache
+
+    auth_service = AuthService(db)
+
+    # Try to get or create default user
+    user = await auth_service.get_user_by_id(1)
+    if user is None:
+        # Create default guest user
+        from app.schemas.user import UserCreate
+        try:
+            user = await auth_service.register(UserCreate(
+                email="guest@example.com",
+                password="guest123456",
+                name="Guest User"
+            ))
+        except Exception:
+            # User might already exist due to race condition
+            user = await auth_service.get_user_by_email("guest@example.com")
+
+    _guest_user_cache = user
+    return user
+
+
 @router.post("/login", response_model=Token)
 async def login(
     login_data: UserLogin,

@@ -11,7 +11,7 @@ from app.schemas.api_doc import (
 )
 from app.services.openapi_parser import ApiDocService
 from app.services.project_service import ProjectService
-from app.api.auth import get_current_user
+from app.api.auth import get_guest_user
 from app.models.user import User
 
 router = APIRouter(prefix="/projects/{project_id}/api-docs", tags=["api-docs"])
@@ -27,7 +27,7 @@ async def verify_project_access(project_id: int, user_id: int, db: AsyncSession)
 async def import_api_doc(
     project_id: int,
     import_data: ApiDocImport,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -54,7 +54,7 @@ async def import_api_doc_file(
     name: str = Query(..., description="Name for the API document"),
     version: str = Query("1.0.0", description="Version of the API document"),
     description: str = Query(None, description="Description of the API document"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -101,7 +101,7 @@ async def list_api_docs(
     project_id: int,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -118,7 +118,7 @@ async def list_api_docs(
 async def get_api_doc(
     project_id: int,
     doc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -154,7 +154,7 @@ async def get_api_doc(
 async def get_doc_parse_info(
     project_id: int,
     doc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -172,7 +172,7 @@ async def list_doc_endpoints(
     doc_id: int,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -189,7 +189,7 @@ async def list_doc_endpoints(
 async def delete_api_doc(
     project_id: int,
     doc_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """

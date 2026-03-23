@@ -5,7 +5,7 @@ from typing import List
 from app.core.database import get_db
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectWithMembers, ProjectMemberResponse
 from app.services.project_service import ProjectService
-from app.api.auth import get_current_user
+from app.api.auth import get_guest_user
 from app.models.user import User
 from app.models.project import ProjectRole
 
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     project_data: ProjectCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -30,7 +30,7 @@ async def create_project(
 async def list_projects(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -44,7 +44,7 @@ async def list_projects(
 @router.get("/{project_id}", response_model=ProjectWithMembers)
 async def get_project(
     project_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -59,7 +59,7 @@ async def get_project(
 async def update_project(
     project_id: int,
     project_data: ProjectUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -73,7 +73,7 @@ async def update_project(
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
     project_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -88,7 +88,7 @@ async def add_member(
     project_id: int,
     user_id: int,
     role: ProjectRole = ProjectRole.VIEWER,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -103,7 +103,7 @@ async def add_member(
 async def remove_member(
     project_id: int,
     user_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """

@@ -17,7 +17,7 @@ from app.schemas.ai import (
 )
 from app.services.openai_service import get_ai_provider, get_default_provider_name
 from app.core.config import settings
-from app.api.auth import get_current_user
+from app.api.auth import get_guest_user
 from app.models.user import User
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -73,7 +73,7 @@ async def get_ai_config_info():
 @router.post("/generate-test-cases", response_model=List[TestCaseSuggestion])
 async def generate_test_cases(
     request: GenerateTestCasesRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_guest_user)
 ):
     """
     AI 生成测试用例建议
@@ -95,7 +95,7 @@ async def generate_test_cases(
 @router.post("/generate-assertions", response_model=List[AssertionSuggestion])
 async def generate_assertions(
     request: GenerateAssertionsRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_guest_user)
 ):
     """
     AI 生成断言建议
@@ -117,7 +117,7 @@ async def generate_assertions(
 @router.post("/analyze-anomaly", response_model=AnomalyAnalysis)
 async def analyze_anomaly(
     request: AnalyzeAnomalyRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_guest_user)
 ):
     """
     AI 异常分析
@@ -139,7 +139,7 @@ async def analyze_anomaly(
 @router.post("/suggest-improvements", response_model=List[str])
 async def suggest_improvements(
     request: SuggestImprovementsRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_guest_user)
 ):
     """
     AI 改进建议

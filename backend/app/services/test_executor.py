@@ -396,7 +396,243 @@ class TestExecutor:
                 error_message="Regex evaluation error"
             )
 
-    def _evaluate_assertion(self, assertion: AssertionConfig, response_data: Dict[str, Any]) -> TestResultDetail:
+    def _evaluate_response_time_assertion(self, assertion: AssertionConfig, response_data: Dict[str, Any], response_time: float) -> TestResultDetail:
+        """Evaluate response time assertion."""
+        expected_ms = int(assertion.expected)
+        actual_ms = int(response_time)
+        passed = actual_ms <= expected_ms
+
+        return TestResultDetail(
+            assertion_type=assertion.type.value,
+            field="response_time",
+            expected=expected_ms,
+            actual=actual_ms,
+            passed=passed,
+            description=assertion.description,
+            error_message=None if passed else f"Response time {actual_ms}ms exceeded limit {expected_ms}ms"
+        )
+
+    def _evaluate_range_assertion(self, assertion: AssertionConfig, response_data: Dict[str, Any]) -> TestResultDetail:
+        """Evaluate range assertion (min/max values)."""
+        try:
+            jsonpath_expr = jsonpath_parse(assertion.field)
+            body = response_data.get("body", {})
+            matches = [match.value for match in jsonpath_expr.find(body)]
+
+            if not matches:
+                return TestResultDetail(
+                    assertion_type=assertion.type.value,
+                    field=assertion.field,
+                    expected=assertion.expected,
+                    actual=None,
+                    passed=False,
+                    description=assertion.description,
+                    error_message=f"JSONPath '{assertion.field}' returned no matches"
+                )
+
+            actual = matches[0] if len(matches) == 1 else matches
+
+            # expected should be a dict with 'min' and 'max' keys
+            if isinstance(assertion.expected, dict):
+                min_val = assertion.expected.get("min")
+                max_val = assertion.expected.get("max")
+
+                if min_val is not None and max_val is not None:
+                    passed = min_val <= actual <= max_val
+                    expected_str = f"{min_val} <= x <= {max_val}"
+                elif min_val is not None:
+                    passed = actual >= min_val
+                    expected_str = f"x >= {min_val}"
+                elif max_val is not None:
+                    passed = actual <= max_val
+                    expected_str = f"x <= {max_val}"
+                else:
+                    passed = False
+                    expected_str = str(assertion.expected)
+            else:
+                passed = actual == assertion.expected
+                expected_str = str(assertion.expected)
+
+            return TestResultDetail(
+                assertion_type=assertion.type.value,
+                field=assertion.field,
+                expected=expected_str,
+                actual=actual,
+                passed=passed,
+                description=assertion.description,
+                error_message=None if passed else f"Value {actual} is outside range {expected_str}"
+            )
+        except JsonPathParserError as e:
+            return TestResultDetail(
+                assertion_type=assertion.type.value,
+                field=assertion.field,
+                expected=assertion.expected,
+                actual=None,
+                passed=False,
+                description=assertion.description,
+                error_message=f"Invalid JSONPath '{assertion.field}': {str(e)}"
+            )
+        except Exception as e:
+            return TestResultDetail(
+                assertion_type=assertion.type.value,
+                field=assertion.field,
+                expected=assertion.expected,
+                actual=None,
+                passed=False,
+                description=assertion.description,
+                error_message=f"Range evaluation error: {str(e)}"
+            )
+
+    def _evaluate_array_count_assertion(self, assertion: AssertionConfig, response_data: Dict[str, Any]) -> TestResultDetail:
+        """Evaluate array count assertion."""
+        try:
+            jsonpath_expr = jsonpath_parse(assertion.field)
+            body = response_data.get("body", {})
+            matches = [match.value for match in jsonpath_expr.find(body)]
+
+            if not matches:
+                return TestResultDetail(
+                    assertion_type=assertion.type.value,
+                    field=assertion.field,
+                    expected=assertion.expected,
+                    actual=None,
+                    passed=False,
+                    description=assertion.description,
+                    error_message=f"JSONPath '{assertion.field}' returned no matches"
+                )
+
+            actual_array = matches[0] if len(matches) == 1 else matches
+
+            if not isinstance(actual_array, (list, dict)):
+                return TestResultDetail(
+                    assertion_type=assertion.type.value,
+                    field=assertion.field,
+                    expected=assertion.expected,
+                    actual=type(actual_array).__name__,
+                    passed=False,
+                    description=assertion.description,
+                    error_message=f"Field '{assertion.field}' is not an array or object"
+                )
+
+            # For dict, count keys; for list, count elements
+            if isinstance(actual_array, dict):
+                actual_count = len(actual_array.keys())
+            else:
+                actual_count = len(actual_array)
+
+            # expected can be a number, or a dict with min/max
+            if isinstance(assertion.expected, dict):
+                min_val = assertion.expected.get("min")
+                max_val = assertion.expected.get("max")
+
+                if min_val is not None and max_val is not None:
+                    passed = min_val <= actual_count <= max_val
+                    expected_str = f"{min_val} <= count <= {max_val}"
+                elif min_val is not None:
+                    passed = actual_count >= min_val
+                    expected_str = f"count >= {min_val}"
+                elif max_val is not None:
+                    passed = actual_count <= max_val
+                    expected_str = f"count <= {max_val}"
+                else:
+                    passed = False
+                    expected_str = str(assertion.expected)
+            else:
+                passed = actual_count == int(assertion.expected)
+                expected_str = str(assertion.expected)
+
+            return TestResultDetail(
+                assertion_type=assertion.type.value,
+                field=assertion.field,
+                expected=expected_str,
+                actual=actual_count,
+                passed=passed,
+                description=assertion.description,
+                error_message=None if passed else f"Array count {actual_count} does not match expected {expected_str}"
+            )
+        except JsonPathParserError as e:
+            return TestResultDetail(
+                assertion_type=assertion.type.value,
+                field=assertion.field,
+                expected=assertion.expected,
+                actual=None,
+                passed=False,
+                description=assertion.description,
+                error_message=f"Invalid JSONPath '{assertion.field}': {str(e)}"
+            )
+        except Exception as e:
+            return TestResultDetail(
+                assertion_type=assertion.type.value,
+                field=assertion.field,
+                expected=assertion.expected,
+                actual=None,
+                passed=False,
+                description=assertion.description,
+                error_message=f"Array count evaluation error: {str(e)}"
+            )
+
+    def _evaluate_json_size_assertion(self, assertion: AssertionConfig, response_data: Dict[str, Any]) -> TestResultDetail:
+        """Evaluate JSON size assertion (byte length of JSON body)."""
+        try:
+            body = response_data.get("body")
+            if body is None:
+                return TestResultDetail(
+                    assertion_type=assertion.type.value,
+                    field="body",
+                    expected=assertion.expected,
+                    actual=None,
+                    passed=False,
+                    description=assertion.description,
+                    error_message="Response body is empty"
+                )
+
+            import sys
+            body_str = json.dumps(body) if not isinstance(body, str) else body
+            actual_size = len(body_str.encode('utf-8'))
+
+            # expected can be a number (max bytes), or dict with min/max
+            if isinstance(assertion.expected, dict):
+                min_val = assertion.expected.get("min")
+                max_val = assertion.expected.get("max")
+
+                if min_val is not None and max_val is not None:
+                    passed = min_val <= actual_size <= max_val
+                    expected_str = f"{min_val} <= size <= {max_val}"
+                elif min_val is not None:
+                    passed = actual_size >= min_val
+                    expected_str = f"size >= {min_val}"
+                elif max_val is not None:
+                    passed = actual_size <= max_val
+                    expected_str = f"size <= {max_val}"
+                else:
+                    passed = False
+                    expected_str = str(assertion.expected)
+            else:
+                max_size = int(assertion.expected)
+                passed = actual_size <= max_size
+                expected_str = f"size <= {max_size}"
+
+            return TestResultDetail(
+                assertion_type=assertion.type.value,
+                field="body",
+                expected=expected_str,
+                actual=actual_size,
+                passed=passed,
+                description=assertion.description,
+                error_message=None if passed else f"JSON size {actual_size} bytes exceeds limit {expected_str}"
+            )
+        except Exception as e:
+            return TestResultDetail(
+                assertion_type=assertion.type.value,
+                field="body",
+                expected=assertion.expected,
+                actual=None,
+                passed=False,
+                description=assertion.description,
+                error_message=f"JSON size evaluation error: {str(e)}"
+            )
+
+    def _evaluate_assertion(self, assertion: AssertionConfig, response_data: Dict[str, Any], response_time: float = 0) -> TestResultDetail:
         """Evaluate a single assertion based on its type."""
         if assertion.type == AssertionType.STATUS:
             return self._evaluate_status_assertion(assertion, response_data)
@@ -406,6 +642,14 @@ class TestExecutor:
             return self._evaluate_header_assertion(assertion, response_data)
         elif assertion.type == AssertionType.REGEX:
             return self._evaluate_regex_assertion(assertion, response_data)
+        elif assertion.type == AssertionType.RESPONSE_TIME:
+            return self._evaluate_response_time_assertion(assertion, response_data, response_time)
+        elif assertion.type == AssertionType.RANGE:
+            return self._evaluate_range_assertion(assertion, response_data)
+        elif assertion.type == AssertionType.ARRAY_COUNT:
+            return self._evaluate_array_count_assertion(assertion, response_data)
+        elif assertion.type == AssertionType.JSON_SIZE:
+            return self._evaluate_json_size_assertion(assertion, response_data)
         else:
             return TestResultDetail(
                 assertion_type=assertion.type.value if hasattr(assertion.type, 'value') else str(assertion.type),
@@ -446,7 +690,7 @@ class TestExecutor:
                 assertions_data = test_case.expected_response.get("assertions", [])
                 for assert_data in assertions_data:
                     assertion = AssertionConfig(**assert_data)
-                    result = self._evaluate_assertion(assertion, response_data)
+                    result = self._evaluate_assertion(assertion, response_data, response_time)
                     assertion_details.append(result)
                     if not result.passed:
                         overall_passed = False
@@ -477,6 +721,25 @@ class TestExecutor:
 
         finally:
             self.base_url = original_base_url
+
+    async def execute_single_test_by_id(
+        self,
+        test_case_id: int,
+        base_url: Optional[str] = None
+    ) -> TestResult:
+        """Execute a single test case by its ID and return the result."""
+        result = await self.db.execute(
+            select(TestCase).where(TestCase.id == test_case_id)
+        )
+        test_case = result.scalar_one_or_none()
+
+        if not test_case:
+            raise ValueError(f"Test case {test_case_id} not found")
+
+        if not test_case.is_enabled:
+            raise ValueError(f"Test case {test_case_id} is disabled")
+
+        return await self.execute_single_test(test_case, base_url)
 
     async def execute_batch(
         self,
@@ -529,3 +792,105 @@ class TestExecutor:
             results=results,
             execution_time=total_time
         )
+
+    async def execute_batch_stream(
+        self,
+        test_case_ids: List[int],
+        base_url: Optional[str] = None
+    ) -> AsyncGenerator[dict, None]:
+        """Execute multiple test cases and yield progress events (for SSE streaming)."""
+        start_time = time.time()
+        total = len(test_case_ids)
+        passed = 0
+        failed = 0
+        error = 0
+        skipped = 0
+
+        for index, test_case_id in enumerate(test_case_ids):
+            # Yield progress event before executing
+            yield {
+                "event": "progress",
+                "data": {
+                    "current": index + 1,
+                    "total": total,
+                    "test_case_id": test_case_id,
+                    "status": "running",
+                    "passed": passed,
+                    "failed": failed,
+                    "error": error,
+                    "skipped": skipped
+                }
+            }
+
+            result = await self.db.execute(
+                select(TestCase).where(TestCase.id == test_case_id)
+            )
+            test_case = result.scalar_one_or_none()
+
+            if not test_case:
+                skipped += 1
+                yield {
+                    "event": "result",
+                    "data": {
+                        "test_case_id": test_case_id,
+                        "status": "skipped",
+                        "reason": "Test case not found"
+                    }
+                }
+                continue
+
+            if not test_case.is_enabled:
+                skipped += 1
+                yield {
+                    "event": "result",
+                    "data": {
+                        "test_case_id": test_case_id,
+                        "status": "skipped",
+                        "reason": "Test case is disabled"
+                    }
+                }
+                continue
+
+            test_result = await self.execute_single_test(test_case, base_url)
+
+            if test_result.status == TestResultStatus.PASSED:
+                passed += 1
+            elif test_result.status == TestResultStatus.FAILED:
+                failed += 1
+            elif test_result.status == TestResultStatus.ERROR:
+                error += 1
+            else:
+                skipped += 1
+
+            # Yield result event
+            yield {
+                "event": "result",
+                "data": {
+                    "test_case_id": test_case_id,
+                    "result_id": test_result.id,
+                    "status": test_result.status.value,
+                    "response_time": test_result.response_time,
+                    "error_message": test_result.error_message,
+                    "assertion_results": test_result.assertion_results,
+                    "passed": test_result.status == TestResultStatus.PASSED,
+                    "passed_count": passed,
+                    "failed_count": failed,
+                    "error_count": error,
+                    "skipped_count": skipped
+                }
+            }
+
+        total_time = (time.time() - start_time) * 1000
+
+        # Yield completion event
+        yield {
+            "event": "complete",
+            "data": {
+                "total": total,
+                "passed": passed,
+                "failed": failed,
+                "error": error,
+                "skipped": skipped,
+                "execution_time": total_time
+            }
+        }

@@ -68,6 +68,18 @@ class SpringBootRegexParser:
 
     REQUEST_BODY_PATTERN = re.compile(r'@RequestBody')
 
+    # DTO class name patterns - match class/record declarations
+    DTO_NAME_PATTERNS = [
+        re.compile(r'(?:public\s+)?class\s+(\w*(?:Request|Response|DTO|Vo|VO|Entity|Model)\w*)\s*(?:extends|implements)?'),
+        re.compile(r'(?:public\s+)?record\s+(\w*(?:Request|Response|DTO|Vo|VO)\w*)\s*\('),
+    ]
+
+    def __init__(self):
+        """Initialize parser with DTO index."""
+        self.dto_index: Dict[str, str] = {}  # DTO name -> file path
+        self.java_files: List[str] = []
+        self.source_path: str = ""
+
     @staticmethod
     def validate_path(path: str) -> str:
         """Validate path doesn't contain traversal."""
@@ -98,6 +110,59 @@ class SpringBootRegexParser:
                     java_files.append(os.path.join(root, file))
 
         return java_files
+
+    def build_dto_index(self, java_files: List[str]) -> None:
+        """Build an index of DTO class names to their file paths."""
+        self.dto_index = {}
+        self.java_files = java_files
+
+        for java_file in java_files:
+            try:
+                file_size = os.path.getsize(java_file)
+                if file_size > MAX_FILE_SIZE:
+                    continue
+
+                with open(java_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                # Remove comments
+                content = self.COMMENT_LINE_PATTERN.sub('', content)
+
+                # Look for DTO class definitions
+                for pattern in self.DTO_NAME_PATTERNS:
+                    for match in pattern.finditer(content):
+                        dto_name = match.group(1)
+                        # Store lowercase for case-insensitive lookup
+                        self.dto_index[dto_name] = java_file
+                        self.dto_index[dto_name.lower()] = java_file
+            except Exception:
+                continue
+
+    def _get_dto_file_path(self, dto_name: str) -> Optional[str]:
+        """Get the file path for a DTO class by name."""
+        # Try exact match first
+        if dto_name in self.dto_index:
+            return self.dto_index[dto_name]
+        # Try lowercase match
+        if dto_name.lower() in self.dto_index:
+            return self.dto_index[dto_name.lower()]
+        return None
+
+    def _read_dto_content(self, dto_name: str) -> Optional[str]:
+        """Read the content of a DTO file."""
+        file_path = self._get_dto_file_path(dto_name)
+        if not file_path:
+            return None
+
+        try:
+            file_size = os.path.getsize(file_path)
+            if file_size > MAX_FILE_SIZE:
+                return None
+
+            with open(file_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            return None
 
     def parse_content(self, content: str) -> List[ParsedEndpoint]:
         """Parse Java source code content and extract endpoints."""
@@ -197,13 +262,14 @@ class SpringBootRegexParser:
             method_content = content_without_comments[method_start:method_end]
 
             parameters = self._extract_parameters(method_content)
-            has_request_body = self.REQUEST_BODY_PATTERN.search(method_content) is not None
+            # Pass full file content to extract DTO fields from class definitions at file level
+            request_body_info = self._extract_request_body_info(content_without_comments, method_content)
 
             endpoint = ParsedEndpoint(
                 path=full_path,
                 method=http_method,
                 parameters=parameters,
-                request_body={"required": False} if has_request_body else None
+                request_body=request_body_info
             )
             endpoints.append(endpoint)
 
@@ -221,6 +287,85 @@ class SpringBootRegexParser:
         if method_path.startswith("/"):
             return class_path + method_path
         return f"{class_path}/{method_path}"
+
+    def _extract_request_body_info(self, full_content: str, method_content: str) -> Optional[Dict]:
+        """Extract @RequestBody parameter information including DTO class and fields."""
+        # Pattern: @RequestBody optionally followed by annotations (like @Valid), then type and name
+        # Matches: @RequestBody UserRequest request
+        # Matches: @RequestBody @Valid UserRequest request
+        request_body_pattern = re.compile(
+            r'@RequestBody(?:\s+(?:@?\w+))*?\s+(\w+)\s+(\w+)',
+            re.MULTILINE
+        )
+        match = request_body_pattern.search(method_content)
+        if match:
+            dto_type = match.group(1)  # e.g., CreateWorkOrderRequest
+            param_name = match.group(2)  # e.g., dto
+
+            # Try to find the DTO class definition in the full file content to extract fields
+            fields = self._extract_dto_fields(full_content, dto_type)
+
+            return {
+                "type": dto_type,
+                "name": param_name,
+                "required": True,
+                "fields": fields
+            }
+        return None
+
+    def _extract_dto_fields(self, content: str, dto_name: str) -> List[Dict]:
+        """Try to extract fields from a DTO class definition.
+
+        First searches in the current file content, then falls back to
+        cross-file search using the DTO index.
+        """
+        fields = []
+
+        # First try: find DTO in current file content
+        fields = self._extract_dto_fields_from_content(content, dto_name)
+        if fields:
+            return fields
+
+        # Second try: look up DTO in indexed files
+        dto_content = self._read_dto_content(dto_name)
+        if dto_content:
+            # Remove comments from DTO content
+            dto_content = self.COMMENT_LINE_PATTERN.sub('', dto_content)
+            return self._extract_dto_fields_from_content(dto_content, dto_name)
+
+        return fields
+
+    def _extract_dto_fields_from_content(self, content: str, dto_name: str) -> List[Dict]:
+        """Extract fields from DTO class definition in given content."""
+        fields = []
+
+        # Find DTO class definition (class or record)
+        # Pattern handles: class UserRequest { }, class UserRequest extends Base { }, record UserRequest(...)
+        dto_pattern = re.compile(
+            rf'(?:class|record)\s+{re.escape(dto_name)}\s*(?:extends\s+\w+)?\s*(?:implements\s+\w+)?\s*\{{?([^}}]*)\}}?',
+            re.MULTILINE | re.DOTALL
+        )
+        dto_match = dto_pattern.search(content)
+        if not dto_match:
+            return fields
+
+        dto_body = dto_match.group(1)
+
+        # Pattern for field declarations: private Type fieldName;
+        field_pattern = re.compile(
+            r'private\s+(\w+(?:<[^>]+>)?)\s+(\w+)\s*;',
+            re.MULTILINE
+        )
+
+        for match in field_pattern.finditer(dto_body):
+            field_type = match.group(1)
+            field_name = match.group(2)
+            fields.append({
+                "name": field_name,
+                "type": field_type
+            })
+
+        return fields
 
     def _extract_parameters(self, method_content: str) -> List[Dict]:
         """Extract @PathVariable and @RequestParam parameters."""
@@ -311,6 +456,16 @@ class SpringBootRegexParser:
             end = min(end, start + 100 + next_class.start())
 
         return end
+
+    def parse_file(self, file_path: str) -> List[ParsedEndpoint]:
+        """Parse a Java file using the pre-built DTO index."""
+        file_size = os.path.getsize(file_path)
+        if file_size > MAX_FILE_SIZE:
+            raise ValueError(f"File too large ({file_size} bytes): {file_path}. Max size is {MAX_FILE_SIZE} bytes")
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return self.parse_content(content)
 
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit per file
@@ -435,12 +590,17 @@ class SourceCodeParseService:
                 await self.db.commit()
                 return project
 
-            # Parse each file
+            # Build DTO index for cross-file field extraction
+            parser.source_path = project.source_path
+            parser.build_dto_index(java_files)
+            log.info(f"Built DTO index with {len(parser.dto_index)} entries from {len(java_files)} files")
+
+            # Parse each file using the same parser instance (has DTO index)
             all_endpoints = []
             failed_files = []
             for java_file in java_files:
                 try:
-                    endpoints = parse_java_file(java_file)
+                    endpoints = parser.parse_file(java_file)
                     all_endpoints.extend(endpoints)
                 except Exception as e:
                     failed_files.append((java_file, str(e)))

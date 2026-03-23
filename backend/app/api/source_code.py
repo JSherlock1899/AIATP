@@ -8,7 +8,7 @@ from app.schemas.source_code_project import (
 )
 from app.services.source_code_parser import SourceCodeParseService
 from app.services.project_service import ProjectService
-from app.api.auth import get_current_user
+from app.api.auth import get_guest_user
 from app.models.user import User
 
 router = APIRouter(prefix="/projects/{project_id}/source-code", tags=["source-code"])
@@ -24,7 +24,7 @@ async def verify_project_access(project_id: int, user_id: int, db: AsyncSession)
 async def parse_source_code(
     project_id: int,
     request: SourceCodeParseRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -79,7 +79,7 @@ async def list_source_code_projects(
     project_id: int,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -96,7 +96,7 @@ async def list_source_code_projects(
 async def get_source_code_project(
     project_id: int,
     source_project_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -122,7 +122,7 @@ async def list_source_code_endpoints(
     source_project_id: int,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -147,7 +147,7 @@ async def list_source_code_endpoints(
 async def delete_source_code_project(
     project_id: int,
     source_project_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_guest_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
